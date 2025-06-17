@@ -16,7 +16,7 @@ The following PowerShell modules are required and will be installed during insta
 ## Installation
 ### Run directly from github
 ```powershell
-iwr https://github.com/AU-Mark/PS-365CalendarManager/raw/refs/heads/main/Start-CalendarManager.ps1 | iex
+irm https://github.com/AU-Mark/PS-365CalendarManager/raw/refs/heads/main/Start-CalendarManager.ps1 | iex
 ```
 ### OR
 
