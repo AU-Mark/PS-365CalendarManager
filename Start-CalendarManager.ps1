@@ -1,4 +1,4 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 
 <#
 .SYNOPSIS
@@ -18,13 +18,6 @@
 .EXAMPLE
     .\Manage-ExchangeCalendarPermissions.ps1 -AdminUPN admin@contoso.com
 #>
-
-[CmdletBinding()]
-Param(
-    [Parameter(Mandatory = $false)]
-    [ValidatePattern('^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')]
-    [String]$AdminUPN
-)
 
 # Script-level variables for consistent configuration
 $Script:ModuleName = 'ExchangeOnlineManagement'
