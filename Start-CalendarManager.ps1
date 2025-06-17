@@ -10,9 +10,9 @@
     The admin user principal name for connecting to Exchange Online
 .NOTES
     Author: Mark Newton
-    Version: 2.0
+    Version: 1.0
     Created: 2025-06-15
-    Updated: 2025-06-15
+    Updated: 2025-06-17
     Requires: PowerShell 5.1, ExchangeOnlineManagement module, Write-ColorEX function
     Compatible: Exchange Online V3 Module
 .EXAMPLE
@@ -3199,8 +3199,6 @@ Function Initialize-Script {
     .SYNOPSIS
         Initializes the script by checking requirements and establishing connections
     #>
-    [CmdletBinding()]
-    Param()
     
     # Display banner
     Clear-Host
@@ -3268,8 +3266,6 @@ Function Show-GoodbyeMessage {
     .SYNOPSIS
         Shows a professional goodbye message when exiting
     #>
-    [CmdletBinding()]
-    Param()
     
     Clear-Host
     Write-ColorEX -Text "┏","━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━","┓" -Color Blue, Blue, Blue -BackgroundColor Black, Black, Black -HorizontalCenter -ANSI8
