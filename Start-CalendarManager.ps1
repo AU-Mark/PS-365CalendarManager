@@ -1,4 +1,5 @@
 #Requires -Version 5.1
+#Requires -RunAsAdministrator
 
 <#
 .SYNOPSIS
@@ -10,14 +11,18 @@
     The admin user principal name for connecting to Exchange Online
 .NOTES
     Author: Mark Newton
-    Version: 1.0
+    Version: 2.0
     Created: 2025-06-15
-    Updated: 2025-06-17
-    Requires: PowerShell 5.1, ExchangeOnlineManagement module, Write-ColorEX function
-    Compatible: Exchange Online V3 Module
+    Updated: 2025-06-19
+    Requires: PowerShell 5.1, ExchangeOnlineManagement module
 .EXAMPLE
     .\Manage-ExchangeCalendarPermissions.ps1 -AdminUPN admin@contoso.com
 #>
+
+# ================================
+# ===    CONFIGURATION VARS    ===
+# ================================
+#region Configuration Variables
 
 # Script-level variables for consistent configuration
 $Script:ModuleName = 'ExchangeOnlineManagement'
@@ -30,6 +35,13 @@ $Script:CurrentAction = $null
 $Script:CurrentTargetMailbox = $null
 $Script:CurrentUserMailbox = $null
 $Script:CurrentStep = $null
+
+#endregion
+
+# ================================
+# ===        FUNCTIONS         ===
+# ================================
+#region Functions
 
 Function Write-ColorEX {
     <#
@@ -1557,6 +1569,128 @@ Function Update-WindowTitle {
     $Host.UI.RawUI.WindowTitle = $TitleParts -join ' '
 }
 
+Function Show-SampleNotificationEmail {
+    <#
+    .SYNOPSIS
+        Displays a sample of the calendar sharing notification email that would be sent
+    .PARAMETER FromDisplayName
+        Display name of the calendar owner
+    .PARAMETER FromEmailAddress
+        Email address of the calendar owner
+    .PARAMETER ToDisplayName
+        Display name of the recipient
+    .PARAMETER ToEmailAddress
+        Email address of the recipient
+    .PARAMETER AccessRights
+        The access rights being granted
+    .PARAMETER SharingPermissionFlags
+        Additional sharing permission flags
+    #>
+    [CmdletBinding()]
+    Param(
+        [Parameter(Mandatory = $true)]
+        [String]$FromDisplayName,
+        
+        [Parameter(Mandatory = $true)]
+        [String]$FromEmailAddress,
+        
+        [Parameter(Mandatory = $true)]
+        [String]$ToDisplayName,
+        
+        [Parameter(Mandatory = $true)]
+        [String]$ToEmailAddress,
+        
+        [Parameter(Mandatory = $true)]
+        [String]$AccessRights,
+        
+        [Parameter(Mandatory = $false)]
+        [String]$SharingPermissionFlags = 'None'
+    )
+    
+    # Create a sample notification email based on Exchange Online calendar sharing format
+    $SampleWidth = [Math]::Max(80, [Math]::Max($FromDisplayName.Length + $FromEmailAddress.Length + 15, $ToDisplayName.Length + $ToEmailAddress.Length + 15))
+    $SampleBorderTop = "┏" + ("━" * [Math]::Max(0, ($SampleWidth - 2))) + "┓"
+    $SampleBorderMiddle = "┣" + ("━" * [Math]::Max(0, ($SampleWidth - 2))) + "┫"
+    $SampleBorderBottom = "┗" + ("━" * [Math]::Max(0, ($SampleWidth - 2))) + "┛"
+    
+    Write-ColorEX -Text "  $SampleBorderTop" -Color LightBlue -ANSI8
+    $EmailTitlePadding = [Math]::Max(0, $SampleWidth - 25 - 2)
+    Write-ColorEX -Text "  ┃ ", "📧 Sample Email Preview", (" " * $EmailTitlePadding), " ┃" -Color LightBlue, LightBlue, None, LightBlue -Style None, @('Bold', 'Underline'), None, None -ANSI8
+    Write-ColorEX -Text "  $SampleBorderMiddle" -Color LightBlue -ANSI8
+    
+    # Email header information
+    $FromPadding = [Math]::Max(0, $SampleWidth - $FromDisplayName.Length - $FromEmailAddress.Length - 13)
+    Write-ColorEX -Text "  ┃ ", "From: ", "$FromDisplayName", " <", "$FromEmailAddress", ">", (" " * $FromPadding), " ┃" -Color LightBlue, LightGray, LightCyan, LightGray, LightCyan, LightGray, None, LightBlue -ANSI8
+    
+    $ToPadding = [Math]::Max(0, $SampleWidth - $ToDisplayName.Length - $ToEmailAddress.Length - 11)
+    Write-ColorEX -Text "  ┃ ", "To: ", "$ToDisplayName", " <", "$ToEmailAddress", ">", (" " * $ToPadding), " ┃" -Color LightBlue, LightGray, LightCyan, LightGray, LightCyan, LightGray, None, LightBlue -ANSI8
+    
+    $SubjectText = "Calendar sharing invitation from $FromDisplayName"
+    $SubjectPadding = [Math]::Max(0, $SampleWidth - $SubjectText.Length - 13)
+    Write-ColorEX -Text "  ┃ ", "Subject: ", "$SubjectText", (" " * $SubjectPadding), " ┃" -Color LightBlue, LightGray, LightGreen, None, LightBlue -ANSI8
+    
+    Write-ColorEX -Text "  $SampleBorderMiddle" -Color LightBlue -ANSI8
+    
+    # Email body content
+    Write-ColorEX -Text "  ┃", (" " * ($SampleWidth - 2)), "┃" -Color LightBlue, None, LightBlue -ANSI8
+    
+    $BodyLine1 = "$FromDisplayName has shared their calendar with you."
+    $Body1Padding = [Math]::Max(0, $SampleWidth - $BodyLine1.Length - 4)
+    Write-ColorEX -Text "  ┃ ", "$BodyLine1", (" " * $Body1Padding), " ┃" -Color LightBlue, White, None, LightBlue -ANSI8
+    
+    Write-ColorEX -Text "  ┃", (" " * [Math]::Max(0, ($SampleWidth - 2))), "┃" -Color LightBlue, None, LightBlue -ANSI8
+    
+    # Permission level information
+    $PermissionDescription = Switch ($AccessRights) {
+        'Owner' { 'Full control of the calendar' }
+        'PublishingEditor' { 'Create, read, modify, and delete items and folders' }
+        'Editor' { 'Create, read, modify, and delete items' }
+        'PublishingAuthor' { 'Create and read items and folders; modify and delete own items' }
+        'Author' { 'Create and read items; modify and delete own items' }
+        'NonEditingAuthor' { 'Create and read items; delete own items' }
+        'Reviewer' { 'Read items only' }
+        'Contributor' { 'Create items only' }
+        'AvailabilityOnly' { 'View free/busy information only' }
+        'LimitedDetails' { 'View free/busy and subject information' }
+        Default { $AccessRights }
+    }
+    
+    $PermLine = "Permission Level: $AccessRights ($PermissionDescription)"
+    $PermPadding = $SampleWidth - $PermLine.Length - 4
+    Write-ColorEX -Text "  ┃ ", "$PermLine", (" " * $PermPadding), " ┃" -Color LightBlue, LightYellow, None, LightBlue -ANSI8
+    
+    # Delegate information if applicable
+    If ($SharingPermissionFlags -ne 'None') {
+        $DelegateText = "Delegate Status: $SharingPermissionFlags"
+        $DelegatePadding = $SampleWidth - $DelegateText.Length - 4
+        Write-ColorEX -Text "  ┃ ", "$DelegateText", (" " * $DelegatePadding), " ┃" -Color LightBlue, LightMagenta, None, LightBlue -ANSI8
+    }
+    
+    Write-ColorEX -Text "  ┃", (" " * ($SampleWidth - 2)), "┃" -Color LightBlue, None, LightBlue -ANSI8
+    
+    $AcceptText = "To start using this shared calendar, click Accept below."
+    $AcceptPadding = $SampleWidth - $AcceptText.Length - 4
+    Write-ColorEX -Text "  ┃ ", "$AcceptText", (" " * $AcceptPadding), " ┃" -Color LightBlue, White, None, LightBlue -ANSI8
+    
+    Write-ColorEX -Text "  ┃", (" " * ($SampleWidth - 2)), "┃" -Color LightBlue, None, LightBlue -ANSI8
+    
+    # Accept button representation
+    $ButtonText = "[ Accept Calendar Sharing Invitation ]"
+    $ButtonPadding = ($SampleWidth - $ButtonText.Length - 2) / 2
+    $ButtonPaddingLeft = [Math]::Floor($ButtonPadding)
+    $ButtonPaddingRight = [Math]::Ceiling($ButtonPadding)
+    Write-ColorEX -Text "  ┃", (" " * $ButtonPaddingLeft), "$ButtonText", (" " * $ButtonPaddingRight), "┃" -Color LightBlue, None, LightGreen, None, LightBlue -BackGroundColor None, None, DarkGreen, None, None -Style None, None, Bold, None, None -ANSI8
+    
+    Write-ColorEX -Text "  ┃", (" " * ($SampleWidth - 2)), "┃" -Color LightBlue, None, LightBlue -ANSI8
+    
+    $FooterText = "This is a normal calendar sharing invitation from Exchange Online."
+    $FooterPadding = $SampleWidth - $FooterText.Length - 4
+    Write-ColorEX -Text "  ┃ ", "$FooterText", (" " * $FooterPadding), " ┃" -Color LightBlue, DarkGray, None, LightBlue -ANSI8
+    
+    Write-ColorEX -Text "  $SampleBorderBottom" -Color LightBlue -ANSI8
+    Write-ColorEX '' -LinesBefore 1
+}
+
 Function Show-StatusBar {
     <#
     .SYNOPSIS
@@ -1659,6 +1793,12 @@ Function Show-InteractiveMenu {
         Whether to show a "Quit" option
     .PARAMETER ShowStatusBar
         Whether to display the status bar
+    .PARAMETER ShowSampleEmail
+        Whether to show sample notification email
+    .PARAMETER SampleEmailParams
+        Parameters for sample email display
+    .PARAMETER SummaryContent
+        Array of summary content to display before menu
     .OUTPUTS
         PSCustomObject with Selected (index), Action ('Select', 'Back', 'Quit', 'Cancel')
     #>
@@ -1678,7 +1818,16 @@ Function Show-InteractiveMenu {
         [Boolean]$AllowQuit = $false,
         
         [Parameter(Mandatory = $false)]
-        [Boolean]$ShowStatusBar = $true
+        [Boolean]$ShowStatusBar = $true,
+
+        [Parameter(Mandatory = $false)]
+        [Boolean]$ShowSampleEmail = $false,
+        
+        [Parameter(Mandatory = $false)]
+        [Hashtable]$SampleEmailParams = @{},
+        
+        [Parameter(Mandatory = $false)]
+        [Array]$SummaryContent = @()
     )
 
     [Console]::CursorVisible = $false
@@ -1700,10 +1849,22 @@ Function Show-InteractiveMenu {
     
     Do {
         Clear-Host
-        
+
         # Show status bar if enabled and there's status to show
         If ($ShowStatusBar) {
             Show-StatusBar
+        }
+        
+        # Show sample email if requested
+        If ($ShowSampleEmail -and $SampleEmailParams.Count -gt 0) {
+            Show-SampleNotificationEmail @SampleEmailParams
+        }
+        
+        # Show summary content if provided
+        If ($SummaryContent.Count -gt 0) {
+            ForEach ($SummaryLine in $SummaryContent) {
+                & $SummaryLine
+            }
         }
         
         # Calculate menu width
@@ -1715,8 +1876,6 @@ Function Show-InteractiveMenu {
         $BorderTop = "┏" + ("━" * ($MenuWidth - 2)) + "┓"
         $BorderMiddle = "┣" + ("━" * ($MenuWidth - 2)) + "┫"
         $BorderBottom = "┗" + ("━" * ($MenuWidth - 2)) + "┛"
-        
-        Write-ColorEX '' -LinesBefore 1
         
         # Menu header with Unicode border
         Write-ColorEX -Text "  $BorderTop" -Color Cyan -ANSI8
@@ -2315,6 +2474,8 @@ Function Add-CalendarPermission {
         The user to grant permissions to
     .PARAMETER AccessRights
         The access rights to grant
+    .PARAMETER SendNotificationToUser
+        Whether to send email notification to the user
     .PARAMETER SharingPermissionFlags
         Additional sharing permission flags
     #>
@@ -2328,6 +2489,9 @@ Function Add-CalendarPermission {
         
         [Parameter(Mandatory = $true)]
         [String]$AccessRights,
+
+        [Parameter(Mandatory = $true)]
+        [Bool]$SendNotificationToUser,
         
         [Parameter(Mandatory = $false)]
         [String]$SharingPermissionFlags = 'None'
@@ -2340,6 +2504,7 @@ Function Add-CalendarPermission {
             Identity = $CalendarPath
             User = $UserIdentity
             AccessRights = $AccessRights
+            SendNotificationToUser = $SendNotificationToUser
             ErrorAction = 'Stop'
         }
         
@@ -2353,6 +2518,10 @@ Function Add-CalendarPermission {
         Write-Progress -Activity 'Adding calendar permissions' -Status 'Progress ->' -Completed
         
         Write-ColorEX -Text '[', '✅ SUCCESS', '] Successfully added ', "$AccessRights", ' permission for ', "$UserIdentity", ' on ', "$MailboxIdentity", ' calendar' -Color White, Green, White, LightGreen, White, LightBlue, White, LightBlue, White -ANSI8
+        
+        If ($SendNotificationToUser) {
+            Write-ColorEX -Text '[', 'ℹ️ INFO', '] Email notification sent to ', "$UserIdentity", ' about calendar sharing' -Color White, Cyan, White, LightBlue, White -ANSI8
+        }
         
     } Catch {
         If ($_.Exception.Message -like '*already has permission*') {
@@ -2374,6 +2543,8 @@ Function Set-CalendarPermission {
         The user to modify permissions for
     .PARAMETER AccessRights
         The new access rights
+    .PARAMETER SendNotificationToUser
+        Whether to send email notification to the user
     .PARAMETER SharingPermissionFlags
         Additional sharing permission flags
     #>
@@ -2387,6 +2558,9 @@ Function Set-CalendarPermission {
         
         [Parameter(Mandatory = $true)]
         [String]$AccessRights,
+
+        [Parameter(Mandatory = $true)]
+        [Bool]$SendNotificationToUser,
         
         [Parameter(Mandatory = $false)]
         [String]$SharingPermissionFlags = 'None'
@@ -2399,6 +2573,7 @@ Function Set-CalendarPermission {
             Identity = $CalendarPath
             User = $UserIdentity
             AccessRights = $AccessRights
+            SendNotificationToUser = $SendNotificationToUser
             ErrorAction = 'Stop'
         }
         
@@ -2412,6 +2587,10 @@ Function Set-CalendarPermission {
         Write-Progress -Activity 'Modifying calendar permissions' -Status 'Progress ->' -Completed
         
         Write-ColorEX -Text '[', '✅ SUCCESS', '] Successfully modified ', "$AccessRights", ' permission for ', "$UserIdentity", ' on ', "$MailboxIdentity", ' calendar' -Color White, Green, White, LightGreen, White, LightBlue, White, LightBlue, White -ANSI8
+        
+        If ($SendNotificationToUser) {
+            Write-ColorEX -Text '[', 'ℹ️ INFO', '] Email notification sent to ', "$UserIdentity", ' about calendar sharing changes' -Color White, Cyan, White, LightBlue, White -ANSI8
+        }
         
     } Catch {
         Write-ColorEX -Text '[', '❌ ERROR', '] Error modifying calendar permission: ', "$($_.Exception.Message)" -Color White, Red, White, LightRed -ANSI8
@@ -2516,8 +2695,8 @@ Function Invoke-ViewPermissions {
     Set-OperationState -TargetMailbox $TargetMailbox -Step 'Verifying Mailbox'
     
     # Verify mailbox exists
-    $MailboxInfo = Test-MailboxExists -Identity $TargetMailbox
-    If ($null -eq $MailboxInfo) {
+    $TargetMailboxInfo = Test-MailboxExists -Identity $TargetMailbox
+    If ($null -eq $TargetMailboxInfo) {
         Clear-Host
         Show-StatusBar
         Write-ColorEX '' -LinesBefore 1
@@ -2529,48 +2708,46 @@ Function Invoke-ViewPermissions {
     }
     
     Set-OperationState -Step 'Retrieving Permissions'
-    Write-ColorEX -Text '[', '✅ SUCCESS', '] Found mailbox: ', "$($MailboxInfo.DisplayName)", ' (', "$($MailboxInfo.RecipientTypeDetails)", ')' -Color White, Green, White, LightGreen, White, LightBlue, White -ANSI8
+    Write-ColorEX -Text '[', '✅ SUCCESS', '] Found mailbox: ', "$($TargetMailboxInfo.DisplayName)", ' (', "$($TargetMailboxInfo.RecipientTypeDetails)", ')' -Color White, Green, White, LightGreen, White, LightBlue, White -ANSI8    
     
     # Get and display permissions
     $Permissions = Get-CalendarPermissions -MailboxIdentity $TargetMailbox
 
     Clear-Host
     Show-StatusBar
-    Write-ColorEX '' -LinesBefore 1
-    Write-ColorEX -Text '  ', 'Calendar Permissions for ', "$($MailboxInfo.DisplayName)" -Color None, LightCyan, LightGreen -Style None, Bold, Bold -ANSI8
-    Write-ColorEX -Text '  ', ('═' * (25 + $MailboxInfo.DisplayName.Length)) -Color None, Cyan -ANSI8
-    Write-ColorEX ''
+    Write-ColorEX -Text '  ', 'Calendar Permissions for ', "$($TargetMailboxInfo.DisplayName)" -Color None, LightCyan, LightGreen -Style None, Bold, Bold -ANSI8 -LinesBefore 1
+    Write-ColorEX -Text '  ', ('═' * (25 + $TargetMailboxInfo.DisplayName.Length)) -Color None, Cyan -ANSI8
     
     If ($Permissions.Count -le 2) {
-        Write-ColorEX -Text '[', 'ℹ️ INFO', '] No custom permissions found for this calendar' -Color White, Cyan, White -ANSI8
+        Write-ColorEX -Text '  [', 'ℹ️ INFO', '] No custom permissions found for this calendar' -Color White, Cyan, White -ANSI8 -LinesBefore 1
         Write-ColorEX -Text '  Only default permissions (Default and Anonymous) are present.' -Color LightGray -ANSI8
-    } Else {       
-        # Display permissions with individual Write-ColorEX lines using dynamic colors
-        Write-ColorEX -Text '  ', 'User', (' ' * 35), 'Access Rights', (' ' * 15), 'Sharing Permissions' -Color None, LightYellow, None, LightYellow, None, LightYellow -Style None, Bold, None, Bold, None, Bold -ANSI8 -LinesBefore 1
-        Write-ColorEX -Text '  ', ('─' * 37), '  ', ('─' * 26), '  ', ('─' * 19) -Color None, LightGray, None, LightGray, None, LightGray -ANSI8
+    }
+
+    # Display permissions with individual Write-ColorEX lines using dynamic colors
+    Write-ColorEX -Text '  ', 'User', (' ' * 35), 'Access Rights', (' ' * 15), 'Sharing Permissions' -Color None, LightYellow, None, LightYellow, None, LightYellow -Style None, Bold, None, Bold, None, Bold -ANSI8 -LinesBefore 1
+    Write-ColorEX -Text '  ', ('─' * 37), '  ', ('─' * 26), '  ', ('─' * 19) -Color None, LightGray, None, LightGray, None, LightGray -ANSI8
+    
+    ForEach ($Permission in $Permissions) {
+        $UserPadding = [Math]::Max(0, 37 - $Permission.User.Length)
+        $AccessPadding = [Math]::Max(0, 23 - $Permission.AccessRights.Length)
         
-        ForEach ($Permission in $Permissions) {
-            $UserPadding = [Math]::Max(0, 37 - $Permission.User.Length)
-            $AccessPadding = [Math]::Max(0, 23 - $Permission.AccessRights.Length)
-            
-            # Determine color based on access rights level
-            $LineColor = Switch -Regex ($Permission.AccessRights) {
-                'Owner'                 { 'Red' }      # Highest level - Red
-                'PublishingEditor'      { 'Magenta' }  # High level - Magenta
-                'Editor'                { 'Yellow' }   # Medium-High level - Yellow
-                'PublishingAuthor'      { 'Cyan' }     # Medium level - Cyan
-                'Author'                { 'Green' }    # Medium level - Green
-                'NonEditingAuthor'      { 'Blue' }     # Medium-Low level - Blue
-                'Reviewer'              { 'White' }         # Low level - White
-                'Contributor'           { 'LightGray' }     # Low level - Gray
-                'AvailabilityOnly'      { 'DarkGray' }      # Minimal - Dark Gray
-                'LimitedDetails'        { 'DarkGray' }      # Minimal - Dark Gray
-                'Default|Anonymous'     { 'DarkGray' }      # System defaults - Dark Gray
-                Default                 { 'LightGray' }     # Unknown - Light Gray
-            }
-            
-            Write-ColorEX -Text '  ', "$($Permission.User)", (' ' * $UserPadding), '  ', "$($Permission.AccessRights)", (' ' * $AccessPadding), '  ', "$($Permission.SharingPermissionFlags)" -Color None, $LineColor, None, None, $LineColor, None, None, $LineColor -Style None, Bold, None, None, Bold, None, None, None -ANSI8
+        # Determine color based on access rights level
+        $LineColor = Switch -Regex ($Permission.AccessRights) {
+            'Owner'                 { 'Red' }      # Highest level - Red
+            'PublishingEditor'      { 'Magenta' }  # High level - Magenta
+            'Editor'                { 'Yellow' }   # Medium-High level - Yellow
+            'PublishingAuthor'      { 'Cyan' }     # Medium level - Cyan
+            'Author'                { 'Green' }    # Medium level - Green
+            'NonEditingAuthor'      { 'Blue' }     # Medium-Low level - Blue
+            'Reviewer'              { 'White' }         # Low level - White
+            'Contributor'           { 'LightGray' }     # Low level - Gray
+            'AvailabilityOnly'      { 'DarkGray' }      # Minimal - Dark Gray
+            'LimitedDetails'        { 'DarkGray' }      # Minimal - Dark Gray
+            'Default|Anonymous'     { 'DarkGray' }      # System defaults - Dark Gray
+            Default                 { 'LightGray' }     # Unknown - Light Gray
         }
+        
+        Write-ColorEX -Text '  ', "$($Permission.User)", (' ' * $UserPadding), '  ', "$($Permission.AccessRights)", (' ' * $AccessPadding), '  ', "$($Permission.SharingPermissionFlags)" -Color None, $LineColor, None, None, $LineColor, None, None, $LineColor -Style None, Bold, None, None, Bold, None, None, None -ANSI8
     }
     
     Write-ColorEX '' -LinesBefore 1
@@ -2618,49 +2795,41 @@ Function Invoke-AddPermission {
 
     Clear-Host
     Show-StatusBar
-    Write-ColorEX '' -LinesBefore 1
-    Write-ColorEX -Text '  ', 'Calendar Permissions for ', "$($MailboxInfo.DisplayName)" -Color None, LightCyan, LightGreen -Style None, Bold, Bold -ANSI8
-    Write-ColorEX -Text '  ', ('═' * (25 + $MailboxInfo.DisplayName.Length)) -Color None, Cyan -ANSI8
-    Write-ColorEX ''
+    Write-ColorEX -Text '  ', 'Calendar Permissions for ', "$($TargetMailboxInfo.DisplayName)" -Color None, LightCyan, LightGreen -Style None, Bold, Bold -ANSI8 -LinesBefore 1
+    Write-ColorEX -Text '  ', ('═' * (25 + $TargetMailboxInfo.DisplayName.Length)) -Color None, Cyan -ANSI8
 
     If ($Permissions.Count -le 2) {
-        Clear-Host
-        Show-StatusBar
-        Write-ColorEX '' -LinesBefore 1
-        Write-ColorEX -Text '[', '⚠️ WARNING', '] No custom permissions found for this calendar' -Color White, Orange, White -ANSI8
-        Write-ColorEX -Text '  There are no permissions to remove.' -Color LightGray -ANSI8
-        Write-ColorEX '' -LinesBefore 1
-        Write-ColorEX -Text 'Press any key to return to main menu...' -Color Yellow -ANSI8
-        $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
-        Return
-    } Else {       
-        # Display permissions with individual Write-ColorEX lines using dynamic colors
-        Write-ColorEX -Text '  ', 'User', (' ' * 35), 'Access Rights', (' ' * 15), 'Sharing Permissions' -Color None, LightYellow, None, LightYellow, None, LightYellow -Style None, Bold, None, Bold, None, Bold -ANSI8 -LinesBefore 1
-        Write-ColorEX -Text '  ', ('─' * 37), '  ', ('─' * 26), '  ', ('─' * 19) -Color None, LightGray, None, LightGray, None, LightGray -ANSI8
-        
-        ForEach ($Permission in $Permissions) {
-            $UserPadding = [Math]::Max(0, 37 - $Permission.User.Length)
-            $AccessPadding = [Math]::Max(0, 23 - $Permission.AccessRights.Length)
-            
-            # Determine color based on access rights level
-            $LineColor = Switch -Regex ($Permission.AccessRights) {
-                'Owner'                 { 'Red' }      # Highest level - Red
-                'PublishingEditor'      { 'Magenta' }  # High level - Magenta
-                'Editor'                { 'Yellow' }   # Medium-High level - Yellow
-                'PublishingAuthor'      { 'Cyan' }     # Medium level - Cyan
-                'Author'                { 'Green' }    # Medium level - Green
-                'NonEditingAuthor'      { 'Blue' }     # Medium-Low level - Blue
-                'Reviewer'              { 'White' }         # Low level - White
-                'Contributor'           { 'LightGray' }     # Low level - Gray
-                'AvailabilityOnly'      { 'DarkGray' }      # Minimal - Dark Gray
-                'LimitedDetails'        { 'DarkGray' }      # Minimal - Dark Gray
-                'Default|Anonymous'     { 'DarkGray' }      # System defaults - Dark Gray
-                Default                 { 'LightGray' }     # Unknown - Light Gray
-            }
-            
-            Write-ColorEX -Text '  ', "$($Permission.User)", (' ' * $UserPadding), '  ', "$($Permission.AccessRights)", (' ' * $AccessPadding), '  ', "$($Permission.SharingPermissionFlags)" -Color None, $LineColor, None, None, $LineColor, None, None, $LineColor -Style None, Bold, None, None, Bold, None, None, None -ANSI8
-        }
+        Write-ColorEX -Text '  [', 'ℹ️ INFO', '] No custom permissions found for this calendar' -Color White, Cyan, White -ANSI8 -LinesBefore 1
+        Write-ColorEX -Text '  Only default permissions (Default and Anonymous) are present.' -Color LightGray -ANSI8
     }
+
+    # Display permissions with individual Write-ColorEX lines using dynamic colors
+    Write-ColorEX -Text '  ', 'User', (' ' * 35), 'Access Rights', (' ' * 15), 'Sharing Permissions' -Color None, LightYellow, None, LightYellow, None, LightYellow -Style None, Bold, None, Bold, None, Bold -ANSI8 -LinesBefore 1
+    Write-ColorEX -Text '  ', ('─' * 37), '  ', ('─' * 26), '  ', ('─' * 19) -Color None, LightGray, None, LightGray, None, LightGray -ANSI8
+    
+    ForEach ($Permission in $Permissions) {
+        $UserPadding = [Math]::Max(0, 37 - $Permission.User.Length)
+        $AccessPadding = [Math]::Max(0, 23 - $Permission.AccessRights.Length)
+        
+        # Determine color based on access rights level
+        $LineColor = Switch -Regex ($Permission.AccessRights) {
+            'Owner'                 { 'Red' }      # Highest level - Red
+            'PublishingEditor'      { 'Magenta' }  # High level - Magenta
+            'Editor'                { 'Yellow' }   # Medium-High level - Yellow
+            'PublishingAuthor'      { 'Cyan' }     # Medium level - Cyan
+            'Author'                { 'Green' }    # Medium level - Green
+            'NonEditingAuthor'      { 'Blue' }     # Medium-Low level - Blue
+            'Reviewer'              { 'White' }         # Low level - White
+            'Contributor'           { 'LightGray' }     # Low level - Gray
+            'AvailabilityOnly'      { 'DarkGray' }      # Minimal - Dark Gray
+            'LimitedDetails'        { 'DarkGray' }      # Minimal - Dark Gray
+            'Default|Anonymous'     { 'DarkGray' }      # System defaults - Dark Gray
+            Default                 { 'LightGray' }     # Unknown - Light Gray
+        }
+        
+        Write-ColorEX -Text '  ', "$($Permission.User)", (' ' * $UserPadding), '  ', "$($Permission.AccessRights)", (' ' * $AccessPadding), '  ', "$($Permission.SharingPermissionFlags)" -Color None, $LineColor, None, None, $LineColor, None, None, $LineColor -Style None, Bold, None, None, Bold, None, None, None -ANSI8
+    }
+    
 
     Write-ColorEX -Text 'Press any key to continue...' -Color Yellow -ANSI8 -LinesBefore 1
     $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
@@ -2733,66 +2902,106 @@ Function Invoke-AddPermission {
             2 { $SharingFlags = 'Delegate,CanViewPrivateItems' }
         }
     }
+
+    # Show sample email and confirm email notification
+    Set-OperationState -Step 'Configure Email Notification'
+    $NotificationOptions = @(
+        'Yes ─ Send email notification to user',
+        'No ─ Do not send email notification'
+    )
+
+    # Show sample email and confirm email notification
+    Set-OperationState -Step 'Configure Email Notification'
+    $NotificationOptions = @(
+        'Yes ─ Send email notification to user',
+        'No ─ Do not send email notification'
+    )
+
+    $SampleEmailParams = @{
+        FromDisplayName = $TargetMailboxInfo.DisplayName
+        FromEmailAddress = $TargetMailbox
+        ToDisplayName = $UserInfo.DisplayName
+        ToEmailAddress = $UserToGrant
+        AccessRights = $AccessRights
+        SharingPermissionFlags = $SharingFlags
+    }
     
-    # Confirm and add permission
+    $NotificationMenuResult = Show-InteractiveMenu -Title "Email Notification" -Options $NotificationOptions -AllowBack $true -ShowSampleEmail $true -SampleEmailParams $SampleEmailParams
+    If ($NotificationMenuResult.Action -ne 'Select') {
+        Return
+    }
+    
+    $SendNotificationToUser = ($NotificationMenuResult.Selected -eq 0)
+    
+    # Confirm with summary screen and add permissions
     Set-OperationState -Step 'Confirm Changes'
     $ConfirmOptions = @(
         '✅ Yes ─ Add these permissions',
         '❌ No ─ Return to main menu'
     )
 
-    $ConfirmResult = Show-InteractiveMenu -Title 'Confirm permission changes' -Options $ConfirmOptions -AllowBack $true
-    
     $SummaryWidth = 70
     $SummaryBorderTop = "┏" + ("━" * ($SummaryWidth - 2)) + "┓"
     $SummaryBorderMiddle = "┣" + ("━" * ($SummaryWidth - 2)) + "┫"
     $SummaryBorderBottom = "┗" + ("━" * ($SummaryWidth - 2)) + "┛"
-    
-    Clear-Host
-    Show-StatusBar
-    Write-ColorEX '' -LinesBefore 1
-    Write-ColorEX -Text "  $SummaryBorderTop" -Color LightYellow -ANSI8
-    $TitlePadding = $SummaryWidth - 18 - 4
-    Write-ColorEX -Text "  ┃ ", 'Permission Summary', (" " * $TitlePadding), " ┃" -Color LightYellow, LightYellow, None, LightYellow -Style None, @('Bold', 'Underline'), None, None -ANSI8
-    Write-ColorEX -Text "  $SummaryBorderMiddle" -Color LightYellow -ANSI8
-    
-    $TargetPadding = $SummaryWidth - $TargetMailboxInfo.DisplayName.Length - 20
-    Write-ColorEX -Text "  ┃ ", 'Target Mailbox: ', "$($TargetMailboxInfo.DisplayName)", (" " * $TargetPadding), " ┃" -Color LightYellow, LightGray, White, None, LightYellow -ANSI8
-    
-    $UserPadding = $SummaryWidth - $UserInfo.DisplayName.Length - 10
-    Write-ColorEX -Text "  ┃ ", 'User: ', "$($UserInfo.DisplayName)", (" " * $UserPadding), " ┃" -Color LightYellow, LightGray, White, None, LightYellow -ANSI8
-    
-    $AccessPadding = $SummaryWidth - $AccessRights.Length - 19
-    Write-ColorEX -Text "  ┃ ", 'Access Rights: ', "$AccessRights", (" " * $AccessPadding), " ┃" -Color LightYellow, LightGray, LightGreen, None, LightYellow -ANSI8
+
+    # Create summary content as script blocks
+    $SummaryContent = @(
+        { Write-ColorEX -Text "  $SummaryBorderTop" -Color LightYellow -ANSI8 -LinesBefore 1 },
+        { 
+            $TitlePadding = $SummaryWidth - 18 - 4
+            Write-ColorEX -Text "  ┃ ", 'Permission Summary', (" " * $TitlePadding), " ┃" -Color LightYellow, LightYellow, None, LightYellow -Style None, @('Bold', 'Underline'), None, None -ANSI8
+        },
+        { Write-ColorEX -Text "  $SummaryBorderMiddle" -Color LightYellow -ANSI8 },
+        {
+            $TargetPadding = $SummaryWidth - $TargetMailboxInfo.DisplayName.Length - 20
+            Write-ColorEX -Text "  ┃ ", 'Target Mailbox: ', "$($TargetMailboxInfo.DisplayName)", (" " * $TargetPadding), " ┃" -Color LightYellow, LightGray, White, None, LightYellow -ANSI8
+        },
+        {
+            $UserPadding = $SummaryWidth - $UserInfo.DisplayName.Length - 10
+            Write-ColorEX -Text "  ┃ ", 'User: ', "$($UserInfo.DisplayName)", (" " * $UserPadding), " ┃" -Color LightYellow, LightGray, White, None, LightYellow -ANSI8
+        },
+        {
+            $AccessPadding = $SummaryWidth - $AccessRights.Length - 19
+            Write-ColorEX -Text "  ┃ ", 'Access Rights: ', "$AccessRights", (" " * $AccessPadding), " ┃" -Color LightYellow, LightGray, LightGreen, None, LightYellow -ANSI8
+        }
+    )
     
     If ($SharingFlags -ne 'None') {
-        $DelegatePadding = $SummaryWidth - $SharingFlags.Length - 22
-        Write-ColorEX -Text "  ┃ ", 'Delegate Permissions: ', "$SharingFlags", (" " * $DelegatePadding), " ┃" -Color LightYellow, LightGray, LightBlue, None, LightYellow -ANSI8
+        $SummaryContent += {
+            $DelegatePadding = $SummaryWidth - $SharingFlags.Length - 22
+            Write-ColorEX -Text "  ┃ ", 'Delegate Permissions: ', "$SharingFlags", (" " * $DelegatePadding), " ┃" -Color LightYellow, LightGray, LightBlue, None, LightYellow -ANSI8
+        }
     }
-    Write-ColorEX -Text "  $SummaryBorderBottom" -Color LightYellow -ANSI8
-    Write-ColorEX '' -LinesBefore 1
     
-    Write-ColorEX -Text 'Press any key to continue...' -Color DarkYellow -ANSI8
-    $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
+    # Add notification status
+    $NotificationText = If ($SendNotificationToUser) { 'Yes' } Else { 'No' }
+    $NotificationColor = If ($SendNotificationToUser) { 'LightGreen' } Else { 'LightRed' }
+    $SummaryContent += {
+        $NotificationPadding = $SummaryWidth - $NotificationText.Length - 29
+        Write-ColorEX -Text "  ┃ ", 'Send Email Notification: ', "$NotificationText", (" " * $NotificationPadding), " ┃" -Color LightYellow, LightGray, $NotificationColor, None, LightYellow -ANSI8
+    }
+    
+    $SummaryContent += { Write-ColorEX -Text "  $SummaryBorderBottom" -Color LightYellow -ANSI8 -LinesAfter 1 }
+
+    $ConfirmResult = Show-InteractiveMenu -Title 'Confirm permission changes' -Options $ConfirmOptions -AllowBack $true -SummaryContent $SummaryContent
+    
     If ($ConfirmResult.Selected -eq 0) {
-        Set-OperationState -Step 'Adding Permission'
         Try {
-            Add-CalendarPermission -MailboxIdentity $TargetMailbox -UserIdentity $UserToGrant -AccessRights $AccessRights -SharingPermissionFlags $SharingFlags
+            Add-CalendarPermission -MailboxIdentity $TargetMailbox -UserIdentity $UserToGrant -AccessRights $AccessRights -SendNotificationToUser $SendNotificationToUser -SharingPermissionFlags $SharingFlags
             
+            Set-OperationState -Step 'Permissions Changed'
             Clear-Host
             Show-StatusBar
-            Write-ColorEX '' -LinesBefore 1
-            Write-ColorEX -Text '  ', '✅ Permission Added Successfully!' -Color None, Green -Style None, @('Bold', 'Underline') -ANSI8
-            Write-ColorEX '' -LinesBefore 1
-            Write-ColorEX -Text 'Press any key to return to main menu...' -Color Yellow -ANSI8
+            Write-ColorEX -Text '  ', '✅ Permission Added Successfully!' -Color None, Green -Style None, @('Bold', 'Underline') -ANSI8 -LinesBefore 1
+            Write-ColorEX -Text 'Press any key to return to main menu...' -Color Yellow -ANSI8 -LinesBefore 1
             $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
         } Catch {
+            Set-OperationState -Step 'Permissions Failed'
             Clear-Host
             Show-StatusBar
-            Write-ColorEX '' -LinesBefore 1
-            Write-ColorEX -Text '[', '❌ ERROR', '] Failed to add permission: ', "$($_.Exception.Message)" -Color White, Red, White, LightRed -ANSI8
-            Write-ColorEX '' -LinesBefore 1
-            Write-ColorEX -Text 'Press any key to return to main menu...' -Color Yellow -ANSI8
+            Write-ColorEX -Text '[', '❌ ERROR', '] Failed to add permission: ', "$($_.Exception.Message)" -Color White, Red, White, LightRed -ANSI8 -LinesBefore 1
+            Write-ColorEX -Text 'Press any key to return to main menu...' -Color Yellow -ANSI8 -LinesBefore 1
             $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
         }
     }
@@ -2839,48 +3048,44 @@ Function Invoke-ModifyPermission {
     Clear-Host
     Show-StatusBar
     Write-ColorEX '' -LinesBefore 1
-    Write-ColorEX -Text '  ', 'Calendar Permissions for ', "$($MailboxInfo.DisplayName)" -Color None, LightCyan, LightGreen -Style None, Bold, Bold -ANSI8
-    Write-ColorEX -Text '  ', ('═' * (25 + $MailboxInfo.DisplayName.Length)) -Color None, Cyan -ANSI8
+    Write-ColorEX -Text '  ', 'Calendar Permissions for ', "$($TargetMailboxInfo.DisplayName)" -Color None, LightCyan, LightGreen -Style None, Bold, Bold -ANSI8
+    Write-ColorEX -Text '  ', ('═' * (25 + $TargetMailboxInfo.DisplayName.Length)) -Color None, Cyan -ANSI8
     Write-ColorEX ''
 
     If ($Permissions.Count -le 2) {
-        Clear-Host
-        Show-StatusBar
         Write-ColorEX '' -LinesBefore 1
-        Write-ColorEX -Text '[', '⚠️ WARNING', '] No custom permissions found for this calendar' -Color White, Orange, White -ANSI8
-        Write-ColorEX -Text '  There are no permissions to remove.' -Color LightGray -ANSI8
+        Write-ColorEX -Text '  [', 'ℹ️ INFO', '] No custom permissions found for this calendar' -Color White, Orange, White -ANSI8
+        Write-ColorEX -Text '  Only default permissions (Default and Anonymous) are present.' -Color LightGray -ANSI8
         Write-ColorEX '' -LinesBefore 1
-        Write-ColorEX -Text 'Press any key to return to main menu...' -Color Yellow -ANSI8
-        $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
-        Return
-    } Else {       
-        # Display permissions with individual Write-ColorEX lines using dynamic colors
-        Write-ColorEX -Text '  ', 'User', (' ' * 35), 'Access Rights', (' ' * 15), 'Sharing Permissions' -Color None, LightYellow, None, LightYellow, None, LightYellow -Style None, Bold, None, Bold, None, Bold -ANSI8 -LinesBefore 1
-        Write-ColorEX -Text '  ', ('─' * 37), '  ', ('─' * 26), '  ', ('─' * 19) -Color None, LightGray, None, LightGray, None, LightGray -ANSI8
-        
-        ForEach ($Permission in $Permissions) {
-            $UserPadding = [Math]::Max(0, 37 - $Permission.User.Length)
-            $AccessPadding = [Math]::Max(0, 23 - $Permission.AccessRights.Length)
-            
-            # Determine color based on access rights level
-            $LineColor = Switch -Regex ($Permission.AccessRights) {
-                'Owner'                 { 'Red' }      # Highest level - Red
-                'PublishingEditor'      { 'Magenta' }  # High level - Magenta
-                'Editor'                { 'Yellow' }   # Medium-High level - Yellow
-                'PublishingAuthor'      { 'Cyan' }     # Medium level - Cyan
-                'Author'                { 'Green' }    # Medium level - Green
-                'NonEditingAuthor'      { 'Blue' }     # Medium-Low level - Blue
-                'Reviewer'              { 'White' }         # Low level - White
-                'Contributor'           { 'LightGray' }     # Low level - Gray
-                'AvailabilityOnly'      { 'DarkGray' }      # Minimal - Dark Gray
-                'LimitedDetails'        { 'DarkGray' }      # Minimal - Dark Gray
-                'Default|Anonymous'     { 'DarkGray' }      # System defaults - Dark Gray
-                Default                 { 'LightGray' }     # Unknown - Light Gray
-            }
-            
-            Write-ColorEX -Text '  ', "$($Permission.User)", (' ' * $UserPadding), '  ', "$($Permission.AccessRights)", (' ' * $AccessPadding), '  ', "$($Permission.SharingPermissionFlags)" -Color None, $LineColor, None, None, $LineColor, None, None, $LineColor -Style None, Bold, None, None, Bold, None, None, None -ANSI8
-        }
     }
+
+    # Display permissions with individual Write-ColorEX lines using dynamic colors
+    Write-ColorEX -Text '  ', 'User', (' ' * 35), 'Access Rights', (' ' * 15), 'Sharing Permissions' -Color None, LightYellow, None, LightYellow, None, LightYellow -Style None, Bold, None, Bold, None, Bold -ANSI8 -LinesBefore 1
+    Write-ColorEX -Text '  ', ('─' * 37), '  ', ('─' * 26), '  ', ('─' * 19) -Color None, LightGray, None, LightGray, None, LightGray -ANSI8
+    
+    ForEach ($Permission in $Permissions) {
+        $UserPadding = [Math]::Max(0, 37 - $Permission.User.Length)
+        $AccessPadding = [Math]::Max(0, 23 - $Permission.AccessRights.Length)
+        
+        # Determine color based on access rights level
+        $LineColor = Switch -Regex ($Permission.AccessRights) {
+            'Owner'                 { 'Red' }      # Highest level - Red
+            'PublishingEditor'      { 'Magenta' }  # High level - Magenta
+            'Editor'                { 'Yellow' }   # Medium-High level - Yellow
+            'PublishingAuthor'      { 'Cyan' }     # Medium level - Cyan
+            'Author'                { 'Green' }    # Medium level - Green
+            'NonEditingAuthor'      { 'Blue' }     # Medium-Low level - Blue
+            'Reviewer'              { 'White' }         # Low level - White
+            'Contributor'           { 'LightGray' }     # Low level - Gray
+            'AvailabilityOnly'      { 'DarkGray' }      # Minimal - Dark Gray
+            'LimitedDetails'        { 'DarkGray' }      # Minimal - Dark Gray
+            'Default|Anonymous'     { 'DarkGray' }      # System defaults - Dark Gray
+            Default                 { 'LightGray' }     # Unknown - Light Gray
+        }
+        
+        Write-ColorEX -Text '  ', "$($Permission.User)", (' ' * $UserPadding), '  ', "$($Permission.AccessRights)", (' ' * $AccessPadding), '  ', "$($Permission.SharingPermissionFlags)" -Color None, $LineColor, None, None, $LineColor, None, None, $LineColor -Style None, Bold, None, None, Bold, None, None, None -ANSI8
+    }
+    
 
     Write-ColorEX -Text 'Press any key to continue...' -Color Yellow -ANSI8 -LinesBefore 1
     $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
@@ -2888,12 +3093,12 @@ Function Invoke-ModifyPermission {
     Set-OperationState -Step 'Select User to Modify'
     
     # Get user to modify permissions for
-    $RemoveMenuResult = Show-InteractiveMenu -Title "Select user to modify calender permissions for $TargetMailbox" -Options ($Permissions | Where-Object {$_.User -ne 'Default' -and $_.User -ne 'Anonymous'}).User -AllowBack $true
+    $RemoveMenuResult = Show-InteractiveMenu -Title "Select user to modify calender permissions for $TargetMailbox" -Options ($Permissions).User -AllowBack $true
     If ($RemoveMenuResult.Action -ne 'Select') {
         Invoke-ModifyPermission
     }
 
-    $UserToModify = $Permissions[$RemoveMenuResult.Selected + 2].User
+    $UserToModify = $Permissions[$RemoveMenuResult.Selected].User
 
     Set-OperationState -UserMailbox $UserToModify -Step 'Verifying User'
     
@@ -2954,6 +3159,36 @@ Function Invoke-ModifyPermission {
             2 { $SharingFlags = 'Delegate,CanViewPrivateItems' }
         }
     }
+
+    # sample email if user selected to send notification and confirm email notification
+    Set-OperationState -Step 'Configure Email Notification'
+    $NotificationOptions = @(
+        'Yes ─ Send email notification to user',
+        'No ─ Do not send email notification'
+    )
+
+    # sample email if user selected to send notification and confirm email notification
+    Set-OperationState -Step 'Configure Email Notification'
+    $NotificationOptions = @(
+        'Yes ─ Send email notification to user',
+        'No ─ Do not send email notification'
+    )
+
+    $SampleEmailParams = @{
+        FromDisplayName = $TargetMailboxInfo.DisplayName
+        FromEmailAddress = $TargetMailbox
+        ToDisplayName = $UserInfo.DisplayName
+        ToEmailAddress = $UserToModify
+        AccessRights = $AccessRights
+        SharingPermissionFlags = $SharingFlags
+    }
+    
+    $NotificationMenuResult = Show-InteractiveMenu -Title "Email Notification" -Options $NotificationOptions -AllowBack $true -ShowSampleEmail $true -SampleEmailParams $SampleEmailParams
+    If ($NotificationMenuResult.Action -ne 'Select') {
+        Return
+    }
+    
+    $SendNotificationToUser = ($NotificationMenuResult.Selected -eq 0)
     
     # Confirm and modify permission
     Set-OperationState -Step 'Confirm Changes'
@@ -2967,38 +3202,52 @@ Function Invoke-ModifyPermission {
     $SummaryBorderMiddle = "┣" + ("━" * ($SummaryWidth - 2)) + "┫"
     $SummaryBorderBottom = "┗" + ("━" * ($SummaryWidth - 2)) + "┛"
     
-    Clear-Host
-    Show-StatusBar
-    Write-ColorEX '' -LinesBefore 1
-    Write-ColorEX -Text "  $SummaryBorderTop" -Color LightYellow -ANSI8
-    $TitlePadding = $SummaryWidth - 30 - 5
-    Write-ColorEX -Text "  ┃ ", 'Permission Modification Summary', (" " * $TitlePadding), " ┃" -Color LightYellow, LightYellow, None, LightYellow -Style None, @('Bold', 'Underline'), None, None -ANSI8
-    Write-ColorEX -Text "  $SummaryBorderMiddle" -Color LightYellow -ANSI8
-    
-    $TargetPadding = $SummaryWidth - $TargetMailboxInfo.DisplayName.Length - 20
-    Write-ColorEX -Text "  ┃ ", 'Target Mailbox: ', "$($TargetMailboxInfo.DisplayName)", (" " * $TargetPadding), " ┃" -Color LightYellow, LightGray, White, None, LightYellow -ANSI8
-    
-    $UserPadding = $SummaryWidth - $UserInfo.DisplayName.Length - 10
-    Write-ColorEX -Text "  ┃ ", 'User: ', "$($UserInfo.DisplayName)", (" " * $UserPadding), " ┃" -Color LightYellow, LightGray, White, None, LightYellow -ANSI8
-    
-    $AccessPadding = $SummaryWidth - $AccessRights.Length - 23
-    Write-ColorEX -Text "  ┃ ", 'New Access Rights: ', "$AccessRights", (" " * $AccessPadding), " ┃" -Color LightYellow, LightGray, LightGreen, None, LightYellow -ANSI8
+    # Create summary content as script blocks
+    $SummaryContent = @(
+        { Write-ColorEX -Text "  $SummaryBorderTop" -Color LightYellow -ANSI8 -LinesBefore 1 },
+        { 
+            $TitlePadding = $SummaryWidth - 30 - 5
+            Write-ColorEX -Text "  ┃ ", 'Permission Modification Summary', (" " * $TitlePadding), " ┃" -Color LightYellow, LightYellow, None, LightYellow -Style None, @('Bold', 'Underline'), None, None -ANSI8
+        },
+        { Write-ColorEX -Text "  $SummaryBorderMiddle" -Color LightYellow -ANSI8 },
+        {
+            $TargetPadding = $SummaryWidth - $TargetMailboxInfo.DisplayName.Length - 20
+            Write-ColorEX -Text "  ┃ ", 'Target Mailbox: ', "$($TargetMailboxInfo.DisplayName)", (" " * $TargetPadding), " ┃" -Color LightYellow, LightGray, White, None, LightYellow -ANSI8
+        },
+        {
+            $UserPadding = $SummaryWidth - $UserInfo.DisplayName.Length - 10
+            Write-ColorEX -Text "  ┃ ", 'User: ', "$($UserInfo.DisplayName)", (" " * $UserPadding), " ┃" -Color LightYellow, LightGray, White, None, LightYellow -ANSI8
+        },
+        {
+            $AccessPadding = $SummaryWidth - $AccessRights.Length - 23
+            Write-ColorEX -Text "  ┃ ", 'New Access Rights: ', "$AccessRights", (" " * $AccessPadding), " ┃" -Color LightYellow, LightGray, LightGreen, None, LightYellow -ANSI8
+        }
+    )
     
     If ($SharingFlags -ne 'None') {
-        $DelegatePadding = $SummaryWidth - $SharingFlags.Length - 24
-        Write-ColorEX -Text "  ┃ ", 'Delegate Permissions: ', "$SharingFlags", (" " * $DelegatePadding), " ┃" -Color LightYellow, LightGray, LightBlue, None, LightYellow -ANSI8
+        $SummaryContent += {
+            $DelegatePadding = $SummaryWidth - $SharingFlags.Length - 24
+            Write-ColorEX -Text "  ┃ ", 'Delegate Permissions: ', "$SharingFlags", (" " * $DelegatePadding), " ┃" -Color LightYellow, LightGray, LightBlue, None, LightYellow -ANSI8
+        }
     }
-    Write-ColorEX -Text "  $SummaryBorderBottom" -Color LightYellow -ANSI8
-    Write-ColorEX '' -LinesBefore 1
     
-    Write-ColorEX -Text 'Press any key to continue...' -Color DarkYellow -ANSI8
-    $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
-    $ConfirmResult = Show-InteractiveMenu -Title "Confirm Permission Modification" -Options $ConfirmOptions -ShowStatusBar $true
+    # Add notification status
+    $NotificationText = If ($SendNotificationToUser) { 'Yes' } Else { 'No' }
+    $NotificationColor = If ($SendNotificationToUser) { 'LightGreen' } Else { 'LightRed' }
+    $SummaryContent += {
+        $NotificationPadding = $SummaryWidth - $NotificationText.Length - 29
+        Write-ColorEX -Text "  ┃ ", 'Send Email Notification: ', "$NotificationText", (" " * $NotificationPadding), " ┃" -Color LightYellow, LightGray, $NotificationColor, None, LightYellow -ANSI8
+    }
+    
+    $SummaryContent += { Write-ColorEX -Text "  $SummaryBorderBottom" -Color LightYellow -ANSI8 -LinesAfter 1 }
+    
+    $ConfirmResult = Show-InteractiveMenu -Title "Confirm Permission Modification" -Options $ConfirmOptions -ShowStatusBar $true -SummaryContent $SummaryContent
+
     If ($ConfirmResult.Selected -eq 0) {
-        Set-OperationState -Step 'Modifying Permission'
         Try {
-            Set-CalendarPermission -MailboxIdentity $TargetMailbox -UserIdentity $UserToModify -AccessRights $AccessRights -SharingPermissionFlags $SharingFlags
+            Set-CalendarPermission -MailboxIdentity $TargetMailbox -UserIdentity $UserToModify -AccessRights $AccessRights -SendNotificationToUser $SendNotificationToUser -SharingPermissionFlags $SharingFlags
             
+            Set-OperationState -Step 'Permissions Changed'
             Clear-Host
             Show-StatusBar
             Write-ColorEX '' -LinesBefore 1
@@ -3007,6 +3256,7 @@ Function Invoke-ModifyPermission {
             Write-ColorEX -Text 'Press any key to return to main menu...' -Color Yellow -ANSI8
             $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
         } Catch {
+            Set-OperationState -Step 'Permissions Failed'
             Clear-Host
             Show-StatusBar
             Write-ColorEX '' -LinesBefore 1
@@ -3058,49 +3308,41 @@ Function Invoke-RemovePermission {
 
     Clear-Host
     Show-StatusBar
-    Write-ColorEX '' -LinesBefore 1
-    Write-ColorEX -Text '  ', 'Calendar Permissions for ', "$($MailboxInfo.DisplayName)" -Color None, LightCyan, LightGreen -Style None, Bold, Bold -ANSI8
-    Write-ColorEX -Text '  ', ('═' * (25 + $MailboxInfo.DisplayName.Length)) -Color None, Cyan -ANSI8
-    Write-ColorEX ''
+    Write-ColorEX -Text '  ', 'Calendar Permissions for ', "$($TargetMailboxInfo.DisplayName)" -LinesBefore 1
+    Write-ColorEX -Text '  ', ('═' * (25 + $TargetMailboxInfo.DisplayName.Length)) -Color None, Cyan -ANSI8
 
     If ($Permissions.Count -le 2) {
-        Clear-Host
-        Show-StatusBar
-        Write-ColorEX '' -LinesBefore 1
-        Write-ColorEX -Text '[', '⚠️ WARNING', '] No custom permissions found for this calendar' -Color White, Orange, White -ANSI8
-        Write-ColorEX -Text '  There are no permissions to remove.' -Color LightGray -ANSI8
-        Write-ColorEX '' -LinesBefore 1
-        Write-ColorEX -Text 'Press any key to return to main menu...' -Color Yellow -ANSI8
-        $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
-        Return
-    } Else {       
-        # Display permissions with individual Write-ColorEX lines using dynamic colors
-        Write-ColorEX -Text '  ', 'User', (' ' * 35), 'Access Rights', (' ' * 15), 'Sharing Permissions' -Color None, LightYellow, None, LightYellow, None, LightYellow -Style None, Bold, None, Bold, None, Bold -ANSI8 -LinesBefore 1
-        Write-ColorEX -Text '  ', ('─' * 37), '  ', ('─' * 26), '  ', ('─' * 19) -Color None, LightGray, None, LightGray, None, LightGray -ANSI8
+        Write-ColorEX -Text '  [', 'ℹ️ INFO', '] No custom permissions found for this calendar' -Color White, Cyan, White -ANSI8 -LinesBefore 1
+        Write-ColorEX -Text '  Only default permissions (Default and Anonymous) are present.' -Color LightGray -ANSI8
+    }     
+
+    # Display permissions with individual Write-ColorEX lines using dynamic colors
+    Write-ColorEX -Text '  ', 'User', (' ' * 35), 'Access Rights', (' ' * 15), 'Sharing Permissions' -Color None, LightYellow, None, LightYellow, None, LightYellow -Style None, Bold, None, Bold, None, Bold -ANSI8 -LinesBefore 1
+    Write-ColorEX -Text '  ', ('─' * 37), '  ', ('─' * 26), '  ', ('─' * 19) -Color None, LightGray, None, LightGray, None, LightGray -ANSI8
+    
+    ForEach ($Permission in $Permissions) {
+        $UserPadding = [Math]::Max(0, 37 - $Permission.User.Length)
+        $AccessPadding = [Math]::Max(0, 23 - $Permission.AccessRights.Length)
         
-        ForEach ($Permission in $Permissions) {
-            $UserPadding = [Math]::Max(0, 37 - $Permission.User.Length)
-            $AccessPadding = [Math]::Max(0, 23 - $Permission.AccessRights.Length)
-            
-            # Determine color based on access rights level
-            $LineColor = Switch -Regex ($Permission.AccessRights) {
-                'Owner'                 { 'Red' }      # Highest level - Red
-                'PublishingEditor'      { 'Magenta' }  # High level - Magenta
-                'Editor'                { 'Yellow' }   # Medium-High level - Yellow
-                'PublishingAuthor'      { 'Cyan' }     # Medium level - Cyan
-                'Author'                { 'Green' }    # Medium level - Green
-                'NonEditingAuthor'      { 'Blue' }     # Medium-Low level - Blue
-                'Reviewer'              { 'White' }         # Low level - White
-                'Contributor'           { 'LightGray' }     # Low level - Gray
-                'AvailabilityOnly'      { 'DarkGray' }      # Minimal - Dark Gray
-                'LimitedDetails'        { 'DarkGray' }      # Minimal - Dark Gray
-                'Default|Anonymous'     { 'DarkGray' }      # System defaults - Dark Gray
-                Default                 { 'LightGray' }     # Unknown - Light Gray
-            }
-            
-            Write-ColorEX -Text '  ', "$($Permission.User)", (' ' * $UserPadding), '  ', "$($Permission.AccessRights)", (' ' * $AccessPadding), '  ', "$($Permission.SharingPermissionFlags)" -Color None, $LineColor, None, None, $LineColor, None, None, $LineColor -Style None, Bold, None, None, Bold, None, None, None -ANSI8
+        # Determine color based on access rights level
+        $LineColor = Switch -Regex ($Permission.AccessRights) {
+            'Owner'                 { 'Red' }      # Highest level - Red
+            'PublishingEditor'      { 'Magenta' }  # High level - Magenta
+            'Editor'                { 'Yellow' }   # Medium-High level - Yellow
+            'PublishingAuthor'      { 'Cyan' }     # Medium level - Cyan
+            'Author'                { 'Green' }    # Medium level - Green
+            'NonEditingAuthor'      { 'Blue' }     # Medium-Low level - Blue
+            'Reviewer'              { 'White' }         # Low level - White
+            'Contributor'           { 'LightGray' }     # Low level - Gray
+            'AvailabilityOnly'      { 'DarkGray' }      # Minimal - Dark Gray
+            'LimitedDetails'        { 'DarkGray' }      # Minimal - Dark Gray
+            'Default|Anonymous'     { 'DarkGray' }      # System defaults - Dark Gray
+            Default                 { 'LightGray' }     # Unknown - Light Gray
         }
+        
+        Write-ColorEX -Text '  ', "$($Permission.User)", (' ' * $UserPadding), '  ', "$($Permission.AccessRights)", (' ' * $AccessPadding), '  ', "$($Permission.SharingPermissionFlags)" -Color None, $LineColor, None, None, $LineColor, None, None, $LineColor -Style None, Bold, None, None, Bold, None, None, None -ANSI8
     }
+
 
     Write-ColorEX -Text 'Press any key to continue...' -Color Yellow -ANSI8 -LinesBefore 1
     $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
@@ -3133,7 +3375,7 @@ Function Invoke-RemovePermission {
     Set-OperationState -Step 'Confirm Removal'
     Write-ColorEX -Text '[', '✅ SUCCESS', '] User to remove permissions: ', "$($UserInfo.DisplayName)" -Color White, Green, White, LightGreen -ANSI8
     
-    # Confirm removal with strong warning
+    # Confirm removal with summary and warning
     $ConfirmOptions = @(
         '⚠️ Yes ─ Remove ALL permissions for this user',
         '❌ No ─ Return to main menu'
@@ -3144,37 +3386,52 @@ Function Invoke-RemovePermission {
     $SummaryBorderMiddle = "┣" + ("━" * ($SummaryWidth - 2)) + "┫"
     $SummaryBorderBottom = "┗" + ("━" * ($SummaryWidth - 2)) + "┛"
     
-    Clear-Host
-    Show-StatusBar
-    Write-ColorEX '' -LinesBefore 1
-    Write-ColorEX -Text "  $SummaryBorderTop" -Color LightRed -ANSI8
-    $TitlePadding = $SummaryWidth - 25 - 5
-    Write-ColorEX -Text "  ┃ ", 'Permission Removal Summary', (" " * $TitlePadding), " ┃" -Color LightRed, LightRed, None, LightRed -Style None, @('Bold', 'Underline'), None, None -ANSI8
-    Write-ColorEX -Text "  $SummaryBorderMiddle" -Color LightRed -ANSI8
+    # Confirm removal with summary and warning
+    $ConfirmOptions = @(
+        '⚠️ Yes ─ Remove ALL permissions for this user',
+        '❌ No ─ Return to main menu'
+    )
     
-    $TargetPadding = $SummaryWidth - $TargetMailboxInfo.DisplayName.Length - 20
-    Write-ColorEX -Text "  ┃ ", 'Target Mailbox: ', "$($TargetMailboxInfo.DisplayName)", (" " * $TargetPadding), " ┃" -Color LightRed, LightGray, White, None, LightRed -ANSI8
+    $SummaryWidth = 70
+    $SummaryBorderTop = "┏" + ("━" * ($SummaryWidth - 2)) + "┓"
+    $SummaryBorderMiddle = "┣" + ("━" * ($SummaryWidth - 2)) + "┫"
+    $SummaryBorderBottom = "┗" + ("━" * ($SummaryWidth - 2)) + "┛"
     
-    $UserPadding = $SummaryWidth - $UserInfo.DisplayName.Length - 19
-    Write-ColorEX -Text "  ┃ ", 'User to Remove: ', "$($UserInfo.DisplayName)", (" " * $UserPadding), " ┃" -Color LightRed, LightGray, White, None, LightRed -ANSI8
+    # Create summary content as script blocks
+    $SummaryContent = @(
+        { Write-ColorEX -Text "  $SummaryBorderTop" -Color LightRed -ANSI8 -LinesBefore 1 },
+        { 
+            $TitlePadding = $SummaryWidth - 25 - 5
+            Write-ColorEX -Text "  ┃ ", 'Permission Removal Summary', (" " * $TitlePadding), " ┃" -Color LightRed, LightRed, None, LightRed -Style None, @('Bold', 'Underline'), None, None -ANSI8
+        },
+        { Write-ColorEX -Text "  $SummaryBorderMiddle" -Color LightRed -ANSI8 },
+        {
+            $TargetPadding = $SummaryWidth - $TargetMailboxInfo.DisplayName.Length - 20
+            Write-ColorEX -Text "  ┃ ", 'Target Mailbox: ', "$($TargetMailboxInfo.DisplayName)", (" " * $TargetPadding), " ┃" -Color LightRed, LightGray, White, None, LightRed -ANSI8
+        },
+        {
+            $UserPadding = $SummaryWidth - $UserInfo.DisplayName.Length - 20
+            Write-ColorEX -Text "  ┃ ", 'User to Remove: ', "$($UserInfo.DisplayName)", (" " * $UserPadding), " ┃" -Color LightRed, LightGray, White, None, LightRed -ANSI8
+        },
+        { Write-ColorEX -Text "  $SummaryBorderMiddle" -Color LightRed -ANSI8 },
+        {
+            $WarningPadding = $SummaryWidth - 50 - 8
+            Write-ColorEX -Text "  ┃ ", '⚠️ WARNING: This will remove ', 'ALL', ' calendar permissions!', (" " * $WarningPadding), " ┃" -Color LightRed, Orange, Red, Orange, None, LightRed -Style None, None, Bold, None, None, None -ANSI8
+        },
+        {
+            $NoticePadding = $SummaryWidth - 52 - 9
+            Write-ColorEX -Text "  ┃ ", 'The user will no longer have any access to this calendar.', (" " * $NoticePadding), " ┃" -Color LightRed, LightGray, None, LightRed -ANSI8
+        },
+        { Write-ColorEX -Text "  $SummaryBorderBottom" -Color LightRed -ANSI8 -LinesAfter 1 }
+    )
     
-    Write-ColorEX -Text "  $SummaryBorderMiddle" -Color LightRed -ANSI8
-    $WarningPadding = $SummaryWidth - 50 - 8
-    Write-ColorEX -Text "  ┃ ", '⚠️ WARNING: This will remove ', 'ALL', ' calendar permissions!', (" " * $WarningPadding), " ┃" -Color LightRed, Orange, Red, Orange, None, LightRed -Style None, None, Bold, None, None, None -ANSI8
-    
-    $NoticePadding = $SummaryWidth - 52 - 9
-    Write-ColorEX -Text "  ┃ ", 'The user will no longer have any access to this calendar.', (" " * $NoticePadding), " ┃" -Color LightRed, LightGray, None, LightRed -ANSI8
-    Write-ColorEX -Text "  $SummaryBorderBottom" -Color LightRed -ANSI8
-    Write-ColorEX '' -LinesBefore 1
-    
-    Write-ColorEX -Text 'Press any key to continue...' -Color DarkYellow -ANSI8
-    $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
-    $ConfirmResult = Show-InteractiveMenu -Title "Confirm Permission Removal" -Options $ConfirmOptions -ShowStatusBar $true
+    $ConfirmResult = Show-InteractiveMenu -Title "Confirm Permission Removal" -Options $ConfirmOptions -ShowStatusBar $true -SummaryContent $SummaryContent
+
     If ($ConfirmResult.Selected -eq 0) {
-        Set-OperationState -Step 'Removing Permission'
         Try {
             Remove-CalendarPermission -MailboxIdentity $TargetMailbox -UserIdentity $UserToRemove
             
+            Set-OperationState -Step 'Permissions Changed'
             Clear-Host
             Show-StatusBar
             Write-ColorEX '' -LinesBefore 1
@@ -3183,6 +3440,7 @@ Function Invoke-RemovePermission {
             Write-ColorEX -Text 'Press any key to return to main menu...' -Color Yellow -ANSI8
             $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
         } Catch {
+            Set-OperationState -Step 'Permissions Failed'
             Clear-Host
             Show-StatusBar
             Write-ColorEX '' -LinesBefore 1
@@ -3194,13 +3452,7 @@ Function Invoke-RemovePermission {
     }
 }
 
-Function Initialize-Script {
-    <#
-    .SYNOPSIS
-        Initializes the script by checking requirements and establishing connections
-    #>
-    
-    # Display banner
+Function Write-Banner {
     Clear-Host
     Write-ColorEX -Text "┏","━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━","┓" -Color Blue, Blue, Blue -BackgroundColor Black, Black, Black -HorizontalCenter -ANSI8
     Write-ColorEX -Text "┃","                                            .-.                                           ","┃" -Color Blue,Blue,Blue -BackgroundColor Black,Black,Black -HorizontalCenter -ANSI8
@@ -3215,12 +3467,22 @@ Function Initialize-Script {
     Write-ColorEX -Text "┃","                                                  *+                                      ","┃" -Color Blue,Blue,Blue -BackgroundColor Black,Black,Black -HorizontalCenter -ANSI8
     Write-ColorEX -Text "┗","━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━","┛" -Color Blue, Blue, Blue -BackgroundColor Black, Black, Black -HorizontalCenter -ANSI8
     Write-ColorEX '' -LinesBefore 1
-    Write-ColorEX -Text '┏', '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', '┓' -Color LightBlue, LightBlue, LightBlue -ANSI8 -HorizontalCenter
-    Write-ColorEX -Text '┃', '              Exchange Online Calendar Manager           ', '┃' -Color LightBlue, White, LightBlue -Style None, Bold, None -ANSI8 -HorizontalCenter
-    Write-ColorEX -Text '┃', '                 Version 1.0 - 2025─06─15                ', '┃' -Color LightBlue, LightGray, LightBlue -ANSI8 -HorizontalCenter
-    Write-ColorEX -Text '┃', '                   Author: Mark Newton                   ', '┃' -Color LightBlue, Gray, LightBlue -ANSI8 -HorizontalCenter
-    Write-ColorEX -Text '┗', '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', '┛' -Color LightBlue, LightBlue, LightBlue -ANSI8 -HorizontalCenter
+    Write-ColorEX -Text '┏', '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', '┓' -Color Blue, Blue, Blue -ANSI8 -HorizontalCenter
+    Write-ColorEX -Text '┃', '             Exchange Online Calendar Manager            ', '┃' -Color Blue, White, Blue -Style None, Bold, None -ANSI8 -HorizontalCenter
+    Write-ColorEX -Text '┃', '                 Version 1.0 - 2025─06─19                ', '┃' -Color Blue, LightGray, Blue -ANSI8 -HorizontalCenter
+    Write-ColorEX -Text '┃', '                   Author: Mark Newton                   ', '┃' -Color Blue, Gray, Blue -ANSI8 -HorizontalCenter
+    Write-ColorEX -Text '┗', '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', '┛' -Color Blue, Blue, Blue -ANSI8 -HorizontalCenter
     Write-ColorEX '' -LinesBefore 1
+}
+
+Function Initialize-Script {
+    <#
+    .SYNOPSIS
+        Initializes the script by checking requirements and establishing connections
+    #>
+    
+    # Display banner
+    Write-Banner
     
     # Set initial window title
     Update-WindowTitle
@@ -3267,26 +3529,8 @@ Function Show-GoodbyeMessage {
         Shows a professional goodbye message when exiting
     #>
     
-    Clear-Host
-    Write-ColorEX -Text "┏","━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━","┓" -Color Blue, Blue, Blue -BackgroundColor Black, Black, Black -HorizontalCenter -ANSI8
-    Write-ColorEX -Text "┃","                                            .-.                                           ","┃" -Color Blue,Blue,Blue -BackgroundColor Black,Black,Black -HorizontalCenter -ANSI8
-    Write-ColorEX -Text "┃","                                            ─#─              #.    ─+                     ","┃" -Color Blue,Blue,Blue -BackgroundColor Black,Black,Black -HorizontalCenter -ANSI8
-    Write-ColorEX -Text "┃","    ....           .       ...      ...     ─#─  .          =#:..          ...      ..    ","┃" -Color Blue,Blue,Blue -BackgroundColor Black,Black,Black -HorizontalCenter -ANSI8
-    Write-ColorEX -Text "┃","   +===*#─  ",".:","     #*  *#++==*#:   +===**:  ─#─ .#*    ─#─ =*#+++. +#.  ─*+==+*. .*+─=*.  ","┃" -Color Blue,Blue,Cyan,Blue,Blue -BackgroundColor Black,Black,Black,Black,Black -HorizontalCenter -ANSI8
-    Write-ColorEX -Text "┃","    .::.+#  ",".:","     #*  *#    .#+   .::..**  ─#─  .#+  ─#=   =#:    +#. =#:       :#+:     ","┃" -Color Blue,Blue,Cyan,Blue,Blue -BackgroundColor Black,Black,Black,Black,Black -HorizontalCenter -ANSI8
-    Write-ColorEX -Text "┃","  =#=──=##. ",".:","     #*  *#     #+  **───=##  ─#─   .#+─#=    =#:    +#. **          :=**.  ","┃" -Color Blue,Blue,Cyan,Blue,Blue -BackgroundColor Black,Black,Black,Black,Black -HorizontalCenter -ANSI8
-    Write-ColorEX -Text "┃","  **.  .*#. ",".:.","   =#=  *#     #+ :#=   :##  ─#─    :##=     ─#─    +#. :#*::  .:  ::  .#= ","┃" -Color Blue,Blue,Cyan,Blue,Blue -BackgroundColor Black,Black,Black,Black,Black -HorizontalCenter -ANSI8
-    Write-ColorEX -Text "┃","  ─+++──=      .==:   ==     =─  .=++= ─==  :=:    .#=       ─++=  ─=    :=+++─  :=++= ─  ","┃" -Color Blue,Blue,Blue -BackgroundColor Black,Black,Black -HorizontalCenter -ANSI8
-    Write-ColorEX -Text "┃","                                                  .#+                                     ","┃" -Color Blue,Blue,Blue -BackgroundColor Black,Black,Black -HorizontalCenter -ANSI8
-    Write-ColorEX -Text "┃","                                                  *+                                      ","┃" -Color Blue,Blue,Blue -BackgroundColor Black,Black,Black -HorizontalCenter -ANSI8
-    Write-ColorEX -Text "┗","━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━","┛" -Color Blue, Blue, Blue -BackgroundColor Black, Black, Black -HorizontalCenter -ANSI8
-    Write-ColorEX '' -LinesBefore 1
-    Write-ColorEX -Text '┏', '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', '┓' -Color LightBlue, LightBlue, LightBlue -ANSI8 -HorizontalCenter
-    Write-ColorEX -Text '┃', '              Exchange Online Calendar Manager           ', '┃' -Color LightBlue, White, LightBlue -Style None, Bold, None -ANSI8 -HorizontalCenter
-    Write-ColorEX -Text '┃', '                 Version 1.0 - 2025─06─15                ', '┃' -Color LightBlue, LightGray, LightBlue -ANSI8 -HorizontalCenter
-    Write-ColorEX -Text '┃', '                   Author: Mark Newton                   ', '┃' -Color LightBlue, Gray, LightBlue -ANSI8 -HorizontalCenter
-    Write-ColorEX -Text '┗', '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', '┛' -Color LightBlue, LightBlue, LightBlue -ANSI8 -HorizontalCenter
-    Write-ColorEX '' -LinesBefore 1
+    # Display banner
+    Write-Banner
 
     If ($Script:IsConnected) {
         Write-ColorEX -Text '[', 'ℹ️ INFO', '] Disconnecting from Exchange Online...' -Color White, Cyan, White -ANSI8 -HorizontalCenter
@@ -3300,8 +3544,8 @@ Function Show-GoodbyeMessage {
 
     Write-ColorEX '' -LinesBefore 2
     Write-ColorEX -Text '┏', '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', '┓' -Color Blue, Blue, Blue -ANSI8 -HorizontalCenter
-    Write-ColorEX -Text '┃', '                    Session Complete                          ', '┃' -Color Blue, White, Blue -Style None, Bold, None -ANSI8 -HorizontalCenter
-    Write-ColorEX -Text '┃', '                Stay Classy, A','u','nalytics 🥂                    ', '┃' -Color Blue, Blue, Cyan, Blue, Blue -ANSI8 -HorizontalCenter
+    Write-ColorEX -Text '┃', '                        Session Complete                      ', '┃' -Color Blue, White, Blue -Style None, Bold, None -ANSI8 -HorizontalCenter
+    Write-ColorEX -Text '┃', '                  Stay Classy, A','u','nalytics 🥂                  ', '┃' -Color Blue, Blue, Cyan, Blue, Blue -ANSI8 -HorizontalCenter
     Write-ColorEX -Text '┗', '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', '┛' -Color Blue, Blue, Blue -ANSI8 -HorizontalCenter
     
     # Reset window title
@@ -3311,7 +3555,13 @@ Function Show-GoodbyeMessage {
     $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
 }
 
-# Main script execution
+#endregion
+
+# ================================
+# ===           MAIN           ===
+# ================================
+#region Main Execution
+
 Try {
     Initialize-Script
     
@@ -3343,3 +3593,5 @@ Try {
     # Reset window title
     $Host.UI.RawUI.WindowTitle = 'PowerShell'
 }
+
+#endregion
