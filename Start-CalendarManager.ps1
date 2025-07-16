@@ -3,20 +3,101 @@
 
 <#
 .SYNOPSIS
-    Exchange Online Calendar Permissions Management Script
+    Interactive Exchange Online calendar permissions management tool with multi-calendar support.
+
 .DESCRIPTION
-    A user-friendly PowerShell script for managing Exchange Online calendar permissions with interactive menus,
-    input validation, and comprehensive error handling. Supports user, shared, and room mailbox calendars.
+    A comprehensive PowerShell script that provides an intuitive interface for managing Exchange Online 
+    calendar permissions across user, shared, and room mailboxes. Features include:
+    
+    - Interactive menu-driven interface with arrow key navigation
+    - Multi-calendar support with automatic detection and selection
+    - Comprehensive permission management (view, add, modify, remove)
+    - Input validation and error handling
+    - Email notification options for permission changes
+    - Support for delegate permissions and sharing flags
+    - Real-time status tracking and progress indicators
+    - Sample email previews for notification understanding
+    
+    The script automatically detects multiple calendars within a mailbox and allows users to select 
+    which specific calendar to manage. If only the default calendar exists, it proceeds automatically.
+    
+    All operations are performed through Exchange Online PowerShell with proper authentication and 
+    session management. The script includes comprehensive error handling and user-friendly feedback.
+
 .PARAMETER AdminUPN
-    The admin user principal name for connecting to Exchange Online
-.NOTES
-    Author: Mark Newton
-    Version: 2.0
-    Created: 2025-06-15
-    Updated: 2025-06-19
-    Requires: PowerShell 5.1, ExchangeOnlineManagement module
+    Specifies the administrator User Principal Name (UPN) for connecting to Exchange Online.
+    This account must have sufficient permissions to manage calendar permissions for the target mailboxes.
+    
+    If not provided, the script will prompt for the admin UPN during initialization.
+
+.INPUTS
+    None. You cannot pipe objects to this script.
+
+.OUTPUTS
+    None. This script provides interactive output to the console and does not return objects.
+
 .EXAMPLE
-    .\Manage-ExchangeCalendarPermissions.ps1 -AdminUPN admin@contoso.com
+    PS C:\> .\Start-CalendarManager.ps1 -AdminUPN admin@contoso.com
+    
+    Connects to Exchange Online using the specified admin account and launches the interactive 
+    calendar permissions management interface.
+
+.EXAMPLE
+    PS C:\> .\Start-CalendarManager.ps1
+    
+    Launches the script and prompts for the admin UPN, then proceeds with the interactive interface.
+
+.EXAMPLE
+    PS C:\> Get-Help .\Start-CalendarManager.ps1 -Full
+    
+    Displays the complete help information for this script including all parameters and examples.
+
+.NOTES
+    Author:           Mark Newton
+    Version:          1.1
+    Created:          2025-06-15
+    Last Modified:    2025-07-16
+    
+    Requirements:
+    - PowerShell 5.1 or later
+    - ExchangeOnlineManagement module (version 3.8.0 or later)
+    - Exchange Online administrator permissions
+    - Windows PowerShell execution policy allowing script execution
+    
+    Supported Mailbox Types:
+    - User mailboxes
+    - Shared mailboxes  
+    - Room mailboxes
+    - Equipment mailboxes
+    
+    Supported Permission Levels:
+    - Owner, PublishingEditor, Editor, PublishingAuthor, Author
+    - NonEditingAuthor, Reviewer, Contributor, AvailabilityOnly, LimitedDetails
+    
+    Features Added in v1.1:
+    - Multi-calendar support and automatic detection
+    - Interactive calendar selection menu
+    
+    Security Considerations:
+    - Script requires administrative privileges
+    - All operations are logged and tracked
+    - Secure credential handling for Exchange Online connection
+    - Input validation prevents common attack vectors
+
+.LINK
+    https://docs.microsoft.com/en-us/powershell/module/exchange/
+
+.LINK
+    https://docs.microsoft.com/en-us/exchange/recipients/mailbox-folder-permissions
+
+.COMPONENT
+    ExchangeOnlineManagement
+
+.ROLE
+    Exchange Administrator
+
+.FUNCTIONALITY
+    Exchange Online calendar permission management, mailbox administration, delegation management
 #>
 
 # ================================
@@ -2396,9 +2477,11 @@ Function Test-MailboxExists {
 Function Get-CalendarFolderPath {
     <#
     .SYNOPSIS
-        Gets the localized calendar folder path for a mailbox
+        Gets the calendar folder path for a specific calendar
     .PARAMETER MailboxIdentity
         The mailbox identity
+    .PARAMETER CalendarIdentity
+        The specific calendar identity (optional, defaults to main calendar)
     .OUTPUTS
         String containing the calendar folder path
     #>
@@ -2406,11 +2489,19 @@ Function Get-CalendarFolderPath {
     [OutputType([String])]
     Param(
         [Parameter(Mandatory = $true)]
-        [String]$MailboxIdentity
+        [String]$MailboxIdentity,
+        
+        [Parameter(Mandatory = $false)]
+        [String]$CalendarIdentity = $null
     )
     
     Try {
-        # Get the localized calendar folder path
+        # If specific calendar identity provided, use it
+        If (-not [String]::IsNullOrEmpty($CalendarIdentity)) {
+            Return $CalendarIdentity
+        }
+        
+        # Otherwise, get the default calendar folder path
         $CalendarFolder = Get-MailboxFolderStatistics -Identity $MailboxIdentity -FolderScope Calendar -ErrorAction Stop | 
                          Where-Object { $_.FolderType -eq 'Calendar' } | 
                          Select-Object -First 1
@@ -2428,14 +2519,14 @@ Function Get-CalendarFolderPath {
     }
 }
 
-Function Get-CalendarPermissions {
+Function Get-AvailableCalendars {
     <#
     .SYNOPSIS
-        Retrieves current calendar permissions for a mailbox
+        Gets all available calendars for a mailbox
     .PARAMETER MailboxIdentity
         The mailbox identity
     .OUTPUTS
-        Array of permission objects
+        Array of calendar objects with Name and FolderPath
     #>
     [CmdletBinding()]
     [OutputType([Array])]
@@ -2445,7 +2536,99 @@ Function Get-CalendarPermissions {
     )
     
     Try {
-        $CalendarPath = Get-CalendarFolderPath -MailboxIdentity $MailboxIdentity
+        # Get all calendar folders
+        $CalendarFolders = Get-MailboxFolderStatistics -Identity $MailboxIdentity -FolderScope Calendar -ErrorAction Stop
+        
+        # Create calendar objects with friendly names
+        $Calendars = @()
+        ForEach ($Folder in $CalendarFolders) {
+            # Extract calendar name from folder path
+            $CalendarName = If ($Folder.FolderType -eq 'Calendar') {
+                'Calendar (Default)'
+            } Else {
+                $Folder.Name
+            }
+            
+            $Calendars += [PSCustomObject]@{
+                Name = $CalendarName
+                FolderPath = $Folder.FolderPath
+                FolderType = $Folder.FolderType
+                ItemCount = $Folder.ItemsInFolder
+                Size = $Folder.FolderSize
+                Identity = "$MailboxIdentity`:$($Folder.FolderPath -replace '/', '\')"
+            }
+        }
+        
+        Return $Calendars | Sort-Object { If ($_.FolderType -eq 'Calendar') { 0 } Else { 1 } }, Name
+    } Catch {
+        Write-ColorEX -Text '[', '❌ ERROR', '] Error retrieving calendars: ', "$($_.Exception.Message)" -Color White, Red, White, LightRed -ANSI8
+        Return @()
+    }
+}
+
+Function Select-Calendar {
+    <#
+    .SYNOPSIS
+        Shows calendar selection menu or auto-selects if only default calendar exists
+    .PARAMETER Calendars
+        Array of available calendars
+    .PARAMETER MailboxDisplayName
+        Display name of the mailbox for the menu title
+    .OUTPUTS
+        Selected calendar object or $null if cancelled
+    #>
+    [CmdletBinding()]
+    [OutputType([PSCustomObject])]
+    Param(
+        [Parameter(Mandatory = $true)]
+        [Array]$Calendars,
+        
+        [Parameter(Mandatory = $true)]
+        [String]$MailboxDisplayName
+    )
+    
+    # If only default calendar exists, auto-select it
+    If ($Calendars.Count -eq 1 -and $Calendars[0].FolderType -eq 'Calendar') {
+        Return $Calendars[0]
+    }
+    
+    # Multiple calendars found, show selection menu
+    $CalendarOptions = @()
+    ForEach ($Calendar in $Calendars) {
+        $CalendarOptions += "$($Calendar.Name) ($($Calendar.ItemCount) items)"
+    }
+    
+    $MenuResult = Show-InteractiveMenu -Title "Select Calendar for $MailboxDisplayName" -Options $CalendarOptions -AllowBack $true
+    
+    If ($MenuResult.Action -eq 'Select') {
+        Return $Calendars[$MenuResult.Selected]
+    }
+    
+    Return $null
+}
+
+Function Get-CalendarPermissions {
+    <#
+    .SYNOPSIS
+        Retrieves current calendar permissions for a mailbox
+    .PARAMETER MailboxIdentity
+        The mailbox identity
+    .PARAMETER CalendarPath
+        The specific calendar folder path
+    .OUTPUTS
+        Array of permission objects
+    #>
+    [CmdletBinding()]
+    [OutputType([Array])]
+    Param(
+        [Parameter(Mandatory = $true)]
+        [String]$MailboxIdentity,
+        
+        [Parameter(Mandatory = $true)]
+        [String]$CalendarPath
+    )
+    
+    Try {
         $Permissions = Get-MailboxFolderPermission -Identity $CalendarPath -ErrorAction Stop
         
         Return $Permissions | Select-Object @{
@@ -2470,6 +2653,8 @@ Function Add-CalendarPermission {
         Adds calendar permission for a user
     .PARAMETER MailboxIdentity
         The target mailbox identity
+    .PARAMETER CalendarPath
+        The specific calendar folder path
     .PARAMETER UserIdentity  
         The user to grant permissions to
     .PARAMETER AccessRights
@@ -2485,6 +2670,9 @@ Function Add-CalendarPermission {
         [String]$MailboxIdentity,
         
         [Parameter(Mandatory = $true)]
+        [String]$CalendarPath,
+        
+        [Parameter(Mandatory = $true)]
         [String]$UserIdentity,
         
         [Parameter(Mandatory = $true)]
@@ -2498,8 +2686,6 @@ Function Add-CalendarPermission {
     )
     
     Try {
-        $CalendarPath = Get-CalendarFolderPath -MailboxIdentity $MailboxIdentity
-        
         $AddParams = @{
             Identity = $CalendarPath
             User = $UserIdentity
@@ -2539,6 +2725,8 @@ Function Set-CalendarPermission {
         Modifies existing calendar permission for a user
     .PARAMETER MailboxIdentity
         The target mailbox identity
+    .PARAMETER CalendarPath
+        The specific calendar folder path
     .PARAMETER UserIdentity
         The user to modify permissions for
     .PARAMETER AccessRights
@@ -2554,6 +2742,9 @@ Function Set-CalendarPermission {
         [String]$MailboxIdentity,
         
         [Parameter(Mandatory = $true)]
+        [String]$CalendarPath,
+        
+        [Parameter(Mandatory = $true)]
         [String]$UserIdentity,
         
         [Parameter(Mandatory = $true)]
@@ -2567,8 +2758,6 @@ Function Set-CalendarPermission {
     )
     
     Try {
-        $CalendarPath = Get-CalendarFolderPath -MailboxIdentity $MailboxIdentity
-        
         $SetParams = @{
             Identity = $CalendarPath
             User = $UserIdentity
@@ -2604,6 +2793,8 @@ Function Remove-CalendarPermission {
         Removes calendar permission for a user
     .PARAMETER MailboxIdentity
         The target mailbox identity
+    .PARAMETER CalendarPath
+        The specific calendar folder path
     .PARAMETER UserIdentity
         The user to remove permissions from
     #>
@@ -2613,12 +2804,13 @@ Function Remove-CalendarPermission {
         [String]$MailboxIdentity,
         
         [Parameter(Mandatory = $true)]
+        [String]$CalendarPath,
+        
+        [Parameter(Mandatory = $true)]
         [String]$UserIdentity
     )
     
     Try {
-        $CalendarPath = Get-CalendarFolderPath -MailboxIdentity $MailboxIdentity
-        
         Write-Progress -Activity 'Removing calendar permissions' -Status 'Progress ->' -PercentComplete 50
         Remove-MailboxFolderPermission -Identity $CalendarPath -User $UserIdentity -Confirm:$false -ErrorAction Stop
         Write-Progress -Activity 'Removing calendar permissions' -Status 'Progress ->' -Completed
@@ -2706,12 +2898,38 @@ Function Invoke-ViewPermissions {
         $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
         Return
     }
+
+    # Get available calendars
+    Set-OperationState -Step 'Retrieving Available Calendars'
+    $AvailableCalendars = Get-AvailableCalendars -MailboxIdentity $TargetMailbox
+
+    If ($AvailableCalendars.Count -eq 0) {
+        Clear-Host
+        Show-StatusBar
+        Write-ColorEX '' -LinesBefore 1
+        Write-ColorEX -Text '[', '❌ ERROR', '] No calendars found for mailbox ', "'$TargetMailbox'" -Color White, Red, White, Yellow -ANSI8
+        Write-ColorEX '' -LinesBefore 1
+        Write-ColorEX -Text 'Press any key to return to main menu...' -Color Yellow -ANSI8
+        $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
+        Return
+    }
+
+    # Select calendar
+    Set-OperationState -Step 'Select Calendar'
+    $SelectedCalendar = Select-Calendar -Calendars $AvailableCalendars -MailboxDisplayName $TargetMailboxInfo.DisplayName
+
+    If ($null -eq $SelectedCalendar) {
+        Return
+    }
+
+    # Update the calendar path variable
+    $CalendarPath = $SelectedCalendar.Identity
     
     Set-OperationState -Step 'Retrieving Permissions'
     Write-ColorEX -Text '[', '✅ SUCCESS', '] Found mailbox: ', "$($TargetMailboxInfo.DisplayName)", ' (', "$($TargetMailboxInfo.RecipientTypeDetails)", ')' -Color White, Green, White, LightGreen, White, LightBlue, White -ANSI8    
     
     # Get and display permissions
-    $Permissions = Get-CalendarPermissions -MailboxIdentity $TargetMailbox
+    $Permissions = Get-CalendarPermissions -MailboxIdentity $TargetMailbox -CalendarPath $CalendarPath
 
     Clear-Host
     Show-StatusBar
@@ -2787,11 +3005,37 @@ Function Invoke-AddPermission {
         Return
     }
 
+    # Get available calendars
+    Set-OperationState -Step 'Retrieving Available Calendars'
+    $AvailableCalendars = Get-AvailableCalendars -MailboxIdentity $TargetMailbox
+
+    If ($AvailableCalendars.Count -eq 0) {
+        Clear-Host
+        Show-StatusBar
+        Write-ColorEX '' -LinesBefore 1
+        Write-ColorEX -Text '[', '❌ ERROR', '] No calendars found for mailbox ', "'$TargetMailbox'" -Color White, Red, White, Yellow -ANSI8
+        Write-ColorEX '' -LinesBefore 1
+        Write-ColorEX -Text 'Press any key to return to main menu...' -Color Yellow -ANSI8
+        $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
+        Return
+    }
+
+    # Select calendar
+    Set-OperationState -Step 'Select Calendar'
+    $SelectedCalendar = Select-Calendar -Calendars $AvailableCalendars -MailboxDisplayName $TargetMailboxInfo.DisplayName
+
+    If ($null -eq $SelectedCalendar) {
+        Return
+    }
+
+    # Update the calendar path variable
+    $CalendarPath = $SelectedCalendar.Identity
+
     Set-OperationState -Step 'Retrieving Current Permissions'
     Write-ColorEX -Text '[', '✅ SUCCESS', '] Target mailbox: ', "$($TargetMailboxInfo.DisplayName)", ' (', "$($TargetMailboxInfo.RecipientTypeDetails)", ')' -Color White, Green, White, LightGreen, White, LightBlue, White -ANSI8
     
     # Show current permissions
-    $Permissions = Get-CalendarPermissions -MailboxIdentity $TargetMailbox
+    $Permissions = Get-CalendarPermissions -MailboxIdentity $TargetMailbox -CalendarPath $CalendarPath
 
     Clear-Host
     Show-StatusBar
@@ -2988,7 +3232,7 @@ Function Invoke-AddPermission {
     
     If ($ConfirmResult.Selected -eq 0) {
         Try {
-            Add-CalendarPermission -MailboxIdentity $TargetMailbox -UserIdentity $UserToGrant -AccessRights $AccessRights -SendNotificationToUser $SendNotificationToUser -SharingPermissionFlags $SharingFlags
+            Add-CalendarPermission -MailboxIdentity $TargetMailbox -CalendarPath $CalendarPath -UserIdentity $UserToGrant -AccessRights $AccessRights -SendNotificationToUser $SendNotificationToUser -SharingPermissionFlags $SharingFlags
             
             Set-OperationState -Step 'Permissions Changed'
             Clear-Host
@@ -3038,12 +3282,38 @@ Function Invoke-ModifyPermission {
         $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
         Return
     }
+
+    # Get available calendars
+    Set-OperationState -Step 'Retrieving Available Calendars'
+    $AvailableCalendars = Get-AvailableCalendars -MailboxIdentity $TargetMailbox
+
+    If ($AvailableCalendars.Count -eq 0) {
+        Clear-Host
+        Show-StatusBar
+        Write-ColorEX '' -LinesBefore 1
+        Write-ColorEX -Text '[', '❌ ERROR', '] No calendars found for mailbox ', "'$TargetMailbox'" -Color White, Red, White, Yellow -ANSI8
+        Write-ColorEX '' -LinesBefore 1
+        Write-ColorEX -Text 'Press any key to return to main menu...' -Color Yellow -ANSI8
+        $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
+        Return
+    }
+
+    # Select calendar
+    Set-OperationState -Step 'Select Calendar'
+    $SelectedCalendar = Select-Calendar -Calendars $AvailableCalendars -MailboxDisplayName $TargetMailboxInfo.DisplayName
+
+    If ($null -eq $SelectedCalendar) {
+        Return
+    }
+
+    # Update the calendar path variable
+    $CalendarPath = $SelectedCalendar.Identity
     
     Set-OperationState -Step 'Retrieving Current Permissions'
     Write-ColorEX -Text '[', '✅ SUCCESS', '] Target mailbox: ', "$($TargetMailboxInfo.DisplayName)", ' (', "$($TargetMailboxInfo.RecipientTypeDetails)", ')' -Color White, Green, White, LightGreen, White, LightBlue, White -ANSI8
       
     # Show current permissions
-    $Permissions = Get-CalendarPermissions -MailboxIdentity $TargetMailbox
+    $Permissions = Get-CalendarPermissions -MailboxIdentity $TargetMailbox -CalendarPath $CalendarPath
 
     Clear-Host
     Show-StatusBar
@@ -3245,7 +3515,7 @@ Function Invoke-ModifyPermission {
 
     If ($ConfirmResult.Selected -eq 0) {
         Try {
-            Set-CalendarPermission -MailboxIdentity $TargetMailbox -UserIdentity $UserToModify -AccessRights $AccessRights -SendNotificationToUser $SendNotificationToUser -SharingPermissionFlags $SharingFlags
+            Set-CalendarPermission -MailboxIdentity $TargetMailbox -CalendarPath $CalendarPath -UserIdentity $UserToModify -AccessRights $AccessRights -SendNotificationToUser $SendNotificationToUser -SharingPermissionFlags $SharingFlags
             
             Set-OperationState -Step 'Permissions Changed'
             Clear-Host
@@ -3299,12 +3569,38 @@ Function Invoke-RemovePermission {
         $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
         Return
     }
+
+    # Get available calendars
+    Set-OperationState -Step 'Retrieving Available Calendars'
+    $AvailableCalendars = Get-AvailableCalendars -MailboxIdentity $TargetMailbox
+
+    If ($AvailableCalendars.Count -eq 0) {
+        Clear-Host
+        Show-StatusBar
+        Write-ColorEX '' -LinesBefore 1
+        Write-ColorEX -Text '[', '❌ ERROR', '] No calendars found for mailbox ', "'$TargetMailbox'" -Color White, Red, White, Yellow -ANSI8
+        Write-ColorEX '' -LinesBefore 1
+        Write-ColorEX -Text 'Press any key to return to main menu...' -Color Yellow -ANSI8
+        $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
+        Return
+    }
+
+    # Select calendar
+    Set-OperationState -Step 'Select Calendar'
+    $SelectedCalendar = Select-Calendar -Calendars $AvailableCalendars -MailboxDisplayName $TargetMailboxInfo.DisplayName
+
+    If ($null -eq $SelectedCalendar) {
+        Return
+    }
+
+    # Update the calendar path variable
+    $CalendarPath = $SelectedCalendar.Identity
     
     Set-OperationState -Step 'Retrieving Current Permissions'
     Write-ColorEX -Text '[', '✅ SUCCESS', '] Target mailbox: ', "$($TargetMailboxInfo.DisplayName)", ' (', "$($TargetMailboxInfo.RecipientTypeDetails)", ')' -Color White, Green, White, LightGreen, White, LightBlue, White -ANSI8
     
     # Show current permissions
-    $Permissions = Get-CalendarPermissions -MailboxIdentity $TargetMailbox
+    $Permissions = Get-CalendarPermissions -MailboxIdentity $TargetMailbox -CalendarPath $CalendarPath
 
     Clear-Host
     Show-StatusBar
@@ -3429,7 +3725,7 @@ Function Invoke-RemovePermission {
 
     If ($ConfirmResult.Selected -eq 0) {
         Try {
-            Remove-CalendarPermission -MailboxIdentity $TargetMailbox -UserIdentity $UserToRemove
+            Remove-CalendarPermission -MailboxIdentity $TargetMailbox -CalendarPath $CalendarPath -UserIdentity $UserToRemove
             
             Set-OperationState -Step 'Permissions Changed'
             Clear-Host
@@ -3469,7 +3765,7 @@ Function Write-Banner {
     Write-ColorEX '' -LinesBefore 1
     Write-ColorEX -Text '┏', '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', '┓' -Color Blue, Blue, Blue -ANSI8 -HorizontalCenter
     Write-ColorEX -Text '┃', '             Exchange Online Calendar Manager            ', '┃' -Color Blue, White, Blue -Style None, Bold, None -ANSI8 -HorizontalCenter
-    Write-ColorEX -Text '┃', '                 Version 1.0 - 2025─06─19                ', '┃' -Color Blue, LightGray, Blue -ANSI8 -HorizontalCenter
+    Write-ColorEX -Text '┃', '                 Version 1.1 - 2025─07─16                ', '┃' -Color Blue, LightGray, Blue -ANSI8 -HorizontalCenter
     Write-ColorEX -Text '┃', '                   Author: Mark Newton                   ', '┃' -Color Blue, Gray, Blue -ANSI8 -HorizontalCenter
     Write-ColorEX -Text '┗', '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', '┛' -Color Blue, Blue, Blue -ANSI8 -HorizontalCenter
     Write-ColorEX '' -LinesBefore 1
