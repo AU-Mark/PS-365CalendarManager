@@ -255,13 +255,3 @@ If you encounter any issues or have questions:
 1. Check the [Troubleshooting](#-troubleshooting) section
 2. Review existing [Issues](https://github.com/AU-Mark/PS-365CalendarManager/issues)
 3. Create a new issue with detailed information about your problem
-
----
-
-<div align="center">
-  
-**Made with ❤️ for the Exchange Online community**
-
-⭐ **Star this repository if you find it helpful!** ⭐
-
-</div>
